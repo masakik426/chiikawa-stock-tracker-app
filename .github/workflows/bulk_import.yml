@@ -1,0 +1,31 @@
+name: 発売情報 一括取得（手動実行専用）
+
+on:
+  # GitHub の Actions タブから手動でのみ実行できる
+  workflow_dispatch:
+
+jobs:
+  import:
+    runs-on: ubuntu-latest
+    env:
+      PYTHONPATH: ${{ github.workspace }}
+
+    steps:
+      - name: コードを取得
+        uses: actions/checkout@v4
+
+      - name: Python をセットアップ
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: ライブラリをインストール
+        run: pip install tweepy supabase python-dotenv geopy
+
+      # 公式Xアカウントの過去ツイートを遡り、未来の発売情報を一括登録する
+      - name: 発売情報を一括取得して登録
+        run: python utils/x_bulk_import.py
+        env:
+          X_BEARER_TOKEN: ${{ secrets.X_BEARER_TOKEN }}
+          SUPABASE_URL:   ${{ secrets.SUPABASE_URL }}
+          SUPABASE_KEY:   ${{ secrets.SUPABASE_KEY }}
