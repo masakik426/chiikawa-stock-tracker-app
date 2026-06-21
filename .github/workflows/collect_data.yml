@@ -1,0 +1,44 @@
+name: X データ収集（毎日自動実行）
+
+on:
+  schedule:
+    # 毎日日本時間 9:00（UTC 0:00）に自動実行する
+    - cron: '0 0 * * *'
+  # GitHub の Actions タブから手動実行も可能にする
+  workflow_dispatch:
+
+jobs:
+  collect:
+    runs-on: ubuntu-latest
+
+    steps:
+      # リポジトリのコードをダウンロードする
+      - name: コードを取得
+        uses: actions/checkout@v4
+
+      # Python をセットアップする
+      - name: Python をセットアップ
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      # 必要なライブラリをインストールする
+      - name: ライブラリをインストール
+        run: pip install tweepy supabase python-dotenv
+
+      # 公式アカウントの監視（毎日実行）
+      - name: 公式Xアカウントの投稿を収集
+        run: python utils/x_official_watcher.py
+        env:
+          X_BEARER_TOKEN: ${{ secrets.X_BEARER_TOKEN }}
+          SUPABASE_URL:   ${{ secrets.SUPABASE_URL }}
+          SUPABASE_KEY:   ${{ secrets.SUPABASE_KEY }}
+
+      # ハッシュタグ検索（週1回のみ・月曜日に実行して API 節約）
+      - name: ハッシュタグ検索で在庫情報を収集
+        if: ${{ github.event_name == 'workflow_dispatch' || startsWith(github.event.schedule, '0 0 * * 1') }}
+        run: python utils/x_harvester.py
+        env:
+          X_BEARER_TOKEN: ${{ secrets.X_BEARER_TOKEN }}
+          SUPABASE_URL:   ${{ secrets.SUPABASE_URL }}
+          SUPABASE_KEY:   ${{ secrets.SUPABASE_KEY }}

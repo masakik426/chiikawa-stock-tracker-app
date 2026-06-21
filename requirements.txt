@@ -1,0 +1,10 @@
+streamlit>=1.35.0
+supabase>=2.0.0
+tweepy>=4.14.0
+streamlit-calendar>=1.0.0
+streamlit-folium>=0.15.0
+folium>=0.15.0
+streamlit-js-eval>=0.1.7
+geopy>=2.4.0
+python-dotenv>=1.0.0
+pandas>=2.0.0
