@@ -1,0 +1,51 @@
+name: 発売情報ツイート（毎日 12:00 自動投稿）
+
+on:
+  schedule:
+    # 毎日日本時間 12:00（UTC 3:00）に自動実行する
+    - cron: '0 3 * * *'
+  # GitHub の Actions タブから手動実行も可能にする
+  workflow_dispatch:
+
+jobs:
+  tweet:
+    runs-on: ubuntu-latest
+    env:
+      PYTHONPATH: ${{ github.workspace }}
+
+    steps:
+      # リポジトリのコードをダウンロードする
+      - name: コードを取得
+        uses: actions/checkout@v4
+
+      # Python をセットアップする
+      - name: Python をセットアップ
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      # 必要なライブラリをインストールする
+      # beautifulsoup4: HTML 解析ライブラリ
+      # requests: URL にアクセスして HTML を取得するライブラリ
+      - name: ライブラリをインストール
+        run: pip install tweepy supabase python-dotenv requests beautifulsoup4 geopy
+
+      # 公式ウェブサイトから発売情報を収集して Supabase に登録する
+      - name: 公式サイトから発売情報を収集
+        run: python utils/web_scraper.py
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
+
+      # 今後7日間の発売情報を X（Twitter）に投稿する
+      # POST_X_* は専用アカウント用の OAuth 1.0a 認証情報
+      - name: 発売情報を X に投稿
+        run: python utils/tweet_poster.py
+        env:
+          POST_X_API_KEY:             ${{ secrets.POST_X_API_KEY }}
+          POST_X_API_SECRET:          ${{ secrets.POST_X_API_SECRET }}
+          POST_X_ACCESS_TOKEN:        ${{ secrets.POST_X_ACCESS_TOKEN }}
+          POST_X_ACCESS_TOKEN_SECRET: ${{ secrets.POST_X_ACCESS_TOKEN_SECRET }}
+          SUPABASE_URL:               ${{ secrets.SUPABASE_URL }}
+          SUPABASE_KEY:               ${{ secrets.SUPABASE_KEY }}
+          SITE_URL:                   ${{ secrets.SITE_URL }}
