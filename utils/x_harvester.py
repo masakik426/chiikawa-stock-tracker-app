@@ -14,22 +14,26 @@ from utils.text_parser import find_or_create_store, find_or_create_product
 
 load_dotenv()
 
+# 交換・譲渡・募集ツイートを除外する共通フィルター
+# 「交換希望」「譲ります」「求めています」などの投稿を取り除く
+_EXCLUDE = "-交換 -譲 -求 -トレード -欲しい -お譲り"
+
 # 収集対象のキーワード（在庫情報が含まれそうなツイートを検索する）
 SEARCH_QUERIES = [
     # 100均
-    "#ダイソーちいかわ (在庫あり OR 入荷) -is:retweet",
-    "#セリアちいかわ (在庫あり OR 入荷) -is:retweet",
-    "#キャンドゥちいかわ (在庫あり OR 入荷) -is:retweet",
+    f"#ダイソーちいかわ (在庫あり OR 入荷) -is:retweet {_EXCLUDE}",
+    f"#セリアちいかわ (在庫あり OR 入荷) -is:retweet {_EXCLUDE}",
+    f"#キャンドゥちいかわ (在庫あり OR 入荷) -is:retweet {_EXCLUDE}",
     # コンビニ
-    "#ちいかわ コンビニ (在庫あり OR 入荷) -is:retweet",
+    f"#ちいかわ コンビニ (在庫あり OR 入荷) -is:retweet {_EXCLUDE}",
     # スーパー
-    "#イオンちいかわ (在庫あり OR 入荷) -is:retweet",
-    "#ヨーカドーちいかわ (在庫あり OR 入荷) -is:retweet",
-    "#西友ちいかわ (在庫あり OR 入荷) -is:retweet",
-    "ちいかわ スーパー (在庫あり OR 入荷) -is:retweet",
+    f"#イオンちいかわ (在庫あり OR 入荷) -is:retweet {_EXCLUDE}",
+    f"#ヨーカドーちいかわ (在庫あり OR 入荷) -is:retweet {_EXCLUDE}",
+    f"#西友ちいかわ (在庫あり OR 入荷) -is:retweet {_EXCLUDE}",
+    f"ちいかわ スーパー (在庫あり OR 入荷) -is:retweet {_EXCLUDE}",
     # ガチャガチャ
-    "#ちいかわ ガチャ (在庫あり OR 入荷) -is:retweet",
-    "#ちいかわガチャ -is:retweet",
+    f"#ちいかわ ガチャ (在庫あり OR 入荷) -is:retweet {_EXCLUDE}",
+    f"#ちいかわガチャ (在庫あり OR 入荷) -is:retweet {_EXCLUDE}",
 ]
 
 # 在庫ステータスを判定するキーワード
