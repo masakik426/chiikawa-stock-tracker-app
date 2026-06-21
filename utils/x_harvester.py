@@ -10,15 +10,26 @@ import os
 import tweepy
 from supabase import create_client
 from dotenv import load_dotenv
+from utils.text_parser import find_or_create_store, find_or_create_product
 
 load_dotenv()
 
 # 収集対象のキーワード（在庫情報が含まれそうなツイートを検索する）
 SEARCH_QUERIES = [
+    # 100均
     "#ダイソーちいかわ (在庫あり OR 入荷) -is:retweet",
     "#セリアちいかわ (在庫あり OR 入荷) -is:retweet",
     "#キャンドゥちいかわ (在庫あり OR 入荷) -is:retweet",
+    # コンビニ
     "#ちいかわ コンビニ (在庫あり OR 入荷) -is:retweet",
+    # スーパー
+    "#イオンちいかわ (在庫あり OR 入荷) -is:retweet",
+    "#ヨーカドーちいかわ (在庫あり OR 入荷) -is:retweet",
+    "#西友ちいかわ (在庫あり OR 入荷) -is:retweet",
+    "ちいかわ スーパー (在庫あり OR 入荷) -is:retweet",
+    # ガチャガチャ
+    "#ちいかわ ガチャ (在庫あり OR 入荷) -is:retweet",
+    "#ちいかわガチャ -is:retweet",
 ]
 
 # 在庫ステータスを判定するキーワード
@@ -81,14 +92,19 @@ def run():
             if existing.data:
                 continue
 
+            # テキストから店舗・商品を自動特定（未登録なら自動作成）
+            store_id   = find_or_create_store(tweet.text, db)
+            product_id = find_or_create_product(tweet.text, db)
+
             status = detect_status(tweet.text)
             db.table("inventory_reports").insert({
-                "status":       status,
-                "source":       "x_hashtag",
-                "x_post_url":   post_url,
-                "x_post_date":  tweet.created_at.isoformat() if tweet.created_at else None,
+                "status":        status,
+                "source":        "x_hashtag",
+                "x_post_url":    post_url,
+                "x_post_date":   tweet.created_at.isoformat() if tweet.created_at else None,
                 "reporter_x_id": str(tweet.author_id),
-                # product_id / store_id は管理者が後から紐付ける（自動解析は将来対応）
+                "store_id":      store_id,
+                "product_id":    product_id,
             }).execute()
             total_saved += 1
             print(f"  → 保存: {tweet.text[:60]}...")

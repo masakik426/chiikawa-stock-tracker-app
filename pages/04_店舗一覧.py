@@ -20,7 +20,7 @@ except Exception as e:
 # ── フィルター ────────────────────────────────────────
 col1, col2 = st.columns(2)
 with col1:
-    store_types = ["すべて", "100均", "コンビニ", "百貨店", "EC", "その他"]
+    store_types = ["すべて", "100均", "コンビニ", "スーパー", "ガチャガチャ", "百貨店", "雑貨", "ちいかわ公式", "EC", "その他"]
     selected_type = st.selectbox("店舗種別", store_types)
 with col2:
     regions = ["すべて"] + sorted({s.get("region", "") for s in stores if s.get("region")})
@@ -38,11 +38,15 @@ st.markdown(f"<div style='color:#888;font-size:0.9em;margin:8px 0 16px;'>"
 
 # ── 店舗カードを 3 カラムで表示 ──────────────────────
 _TYPE_COLORS = {
-    "100均":   ("#00695C", "#E0F2F1"),
-    "コンビニ": ("#1565C0", "#E3F2FD"),
-    "百貨店":  ("#6A1B9A", "#F3E5F5"),
-    "EC":      ("#E65100", "#FFF3E0"),
-    "その他":  ("#555555", "#EEEEEE"),
+    "100均":       ("#00695C", "#E0F2F1"),
+    "コンビニ":     ("#1565C0", "#E3F2FD"),
+    "スーパー":     ("#2E7D32", "#E8F5E9"),
+    "ガチャガチャ": ("#6A1B9A", "#EDE7F6"),
+    "百貨店":       ("#AD1457", "#FCE4EC"),
+    "雑貨":         ("#E65100", "#FFF3E0"),
+    "ちいかわ公式": ("#E91E8C", "#FCE4EC"),
+    "EC":           ("#1565C0", "#E3F2FD"),
+    "その他":       ("#555555", "#EEEEEE"),
 }
 
 cols = st.columns(3)

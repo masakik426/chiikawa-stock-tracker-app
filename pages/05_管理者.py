@@ -112,7 +112,7 @@ with tab_store:
             s_name = st.text_input("店舗名 *")
             col1, col2 = st.columns(2)
             with col1:
-                s_type   = st.selectbox("店舗種別", ["100均", "コンビニ", "百貨店", "EC", "その他"])
+                s_type   = st.selectbox("店舗種別", ["100均", "コンビニ", "スーパー", "ガチャガチャ", "百貨店", "雑貨", "ちいかわ公式", "EC", "その他"])
                 s_region = st.text_input("地域（都道府県）")
             with col2:
                 s_site = st.text_input("公式サイトURL")

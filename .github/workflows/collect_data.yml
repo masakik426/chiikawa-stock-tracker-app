@@ -24,7 +24,15 @@ jobs:
 
       # 必要なライブラリをインストールする
       - name: ライブラリをインストール
-        run: pip install tweepy supabase python-dotenv
+        run: pip install tweepy supabase python-dotenv geopy
+
+      # 店舗マスタ一括登録（毎月1日 or 手動実行時）
+      - name: 主要チェーン店舗を一括登録
+        if: ${{ github.event_name == 'workflow_dispatch' || startsWith(github.event.schedule, '0 0 1 ') }}
+        run: python utils/store_seeder.py
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
 
       # 公式アカウントの監視（毎日実行）
       - name: 公式Xアカウントの投稿を収集
