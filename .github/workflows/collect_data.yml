@@ -10,6 +10,8 @@ on:
 jobs:
   collect:
     runs-on: ubuntu-latest
+    env:
+      PYTHONPATH: ${{ github.workspace }}
 
     steps:
       # リポジトリのコードをダウンロードする
