@@ -26,7 +26,7 @@ jobs:
 
       # 必要なライブラリをインストールする
       - name: ライブラリをインストール
-        run: pip install tweepy supabase python-dotenv geopy
+        run: pip install tweepy supabase python-dotenv geopy anthropic
 
       # 店舗マスタ一括登録（毎月1日 or 手動実行時）
       - name: 主要チェーン店舗を一括登録
@@ -40,9 +40,10 @@ jobs:
       - name: 公式Xアカウントの投稿を収集
         run: python utils/x_official_watcher.py
         env:
-          X_BEARER_TOKEN: ${{ secrets.X_BEARER_TOKEN }}
-          SUPABASE_URL:   ${{ secrets.SUPABASE_URL }}
-          SUPABASE_KEY:   ${{ secrets.SUPABASE_KEY }}
+          X_BEARER_TOKEN:    ${{ secrets.X_BEARER_TOKEN }}
+          SUPABASE_URL:      ${{ secrets.SUPABASE_URL }}
+          SUPABASE_KEY:      ${{ secrets.SUPABASE_KEY }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
 
       # ハッシュタグ検索（週1回のみ・月曜日に実行して API 節約）
       - name: ハッシュタグ検索で在庫情報を収集

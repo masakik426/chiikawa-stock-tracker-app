@@ -86,15 +86,19 @@ def format_tweet(releases: list) -> str:
             store      = r.get("stores") or {}
             name       = product.get("name", "（商品情報取得中）")
             store_name = store.get("name", "") if store else ""
+            source_url = r.get("source_url", "")
 
             if store_name:
                 lines.append(f"・{name} @ {store_name}")
             else:
                 lines.append(f"・{name}")
 
+            # 元の公式ツイートURLがあれば添付する
+            if source_url:
+                lines.append(f" ↳ {source_url}")
+
         lines.append("")  # 日付ブロックの間に空行を入れる
 
-    lines.append(f"詳細→ {SITE_URL}")
     lines.append(HASHTAGS)
 
     tweet_text = "\n".join(lines)

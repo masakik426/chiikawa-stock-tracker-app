@@ -5,6 +5,7 @@ x_harvester.py と x_official_watcher.py から呼び出して
 store_id / product_id を自動リンクするために使う。
 """
 
+import os
 import re
 import time
 from datetime import date, datetime
@@ -133,6 +134,36 @@ def is_product_announcement(text: str) -> bool:
     return any(kw in text for kw in ANNOUNCEMENT_KEYWORDS)
 
 
+def extract_product_name_with_ai(tweet_text: str) -> str | None:
+    """
+    Claude Haiku API を使ってツイートから商品名を抽出する。
+    環境変数 ANTHROPIC_API_KEY が設定されていない場合は None を返す。
+    """
+    api_key = os.environ.get("ANTHROPIC_API_KEY")
+    if not api_key:
+        return None
+    try:
+        import anthropic
+        client = anthropic.Anthropic(api_key=api_key)
+        message = client.messages.create(
+            model="claude-haiku-4-5-20251001",
+            max_tokens=60,
+            messages=[{
+                "role": "user",
+                "content": (
+                    "以下のちいかわ公式ツイートから、発売・販売される商品名を簡潔に抽出してください。\n"
+                    "商品名だけを返してください（25文字以内）。商品名が分からない場合は「不明」とだけ返してください。\n\n"
+                    f"ツイート:\n{tweet_text[:300]}"
+                ),
+            }],
+        )
+        result = message.content[0].text.strip()
+        return None if result == "不明" else result
+    except Exception as e:
+        print(f"  AI抽出エラー: {e}")
+        return None
+
+
 def find_or_create_store(text: str, db) -> int | None:
     """
     テキストから店舗を特定し、未登録なら自動挿入して store_id を返す。
@@ -170,21 +201,22 @@ def find_or_create_store(text: str, db) -> int | None:
     return None
 
 
-def find_or_create_product(text: str, db) -> int | None:
+def find_or_create_product(text: str, db, name_override: str | None = None) -> int | None:
     """
     テキストから商品を特定し、未登録なら自動挿入して product_id を返す。
-    「ちいかわ」を含む商品名パターンを探す。
+    name_override が指定された場合（AI抽出）はその名前を優先して使う。
     商品名が抽出できない場合は None を返す。
     """
-    # 「ちいかわ ○○」パターンで商品名を抽出
-    match = re.search(r"ちいかわ[\s　]*([\w\s（）()ー〜・「」]+?)(?=[にをがはでと、。\s]|$)", text)
-    if not match:
-        return None
-
-    candidate = f"ちいかわ {match.group(1).strip()}"
-    # 長すぎる場合（店舗名が混入している可能性）は切り捨て
-    if len(candidate) > 50:
-        return None
+    if name_override:
+        candidate = name_override
+    else:
+        # 「ちいかわ ○○」パターンで商品名を抽出（正規表現フォールバック）
+        match = re.search(r"ちいかわ[\s　]*([\w\s（）()ー〜・「」]+?)(?=[にをがはでと、。\s]|$)", text)
+        if not match:
+            return None
+        candidate = f"ちいかわ {match.group(1).strip()}"
+        if len(candidate) > 50:
+            return None
 
     # 既存の商品と照合
     existing = db.table("products").select("id, name").execute()

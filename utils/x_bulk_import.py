@@ -15,7 +15,7 @@ from datetime import date
 import tweepy
 from supabase import create_client
 from dotenv import load_dotenv
-from utils.text_parser import find_or_create_product, extract_date
+from utils.text_parser import find_or_create_product, extract_date, extract_product_name_with_ai
 
 load_dotenv()
 
@@ -85,7 +85,8 @@ def run():
         print(f"  → {len(response.data)} 件取得")
 
         for tweet in response.data:
-            text = tweet.text
+            text       = tweet.text
+            tweet_url  = f"https://x.com/{username}/status/{tweet.id}"
 
             # 発売情報キーワードがなければスキップ
             if not is_release_related(text):
@@ -100,32 +101,33 @@ def run():
             if release_date < today:
                 continue
 
-            # 商品を特定（未登録なら自動作成）
-            product_id = find_or_create_product(text, db)
-            if not product_id:
-                continue
-
-            # 同じ商品・同じ日付がすでに登録されていれば重複登録しない
+            # 同じツイートがすでに登録されていれば重複登録しない
             existing = (
                 db.table("release_schedule")
                 .select("id")
-                .eq("product_id", product_id)
-                .eq("scheduled_date", release_date.isoformat())
+                .eq("source_url", tweet_url)
                 .execute()
             )
             if existing.data:
                 continue
 
-            # release_schedule に登録
+            # AI で商品名を抽出し、商品を特定（未登録なら自動作成）
+            product_name = extract_product_name_with_ai(text)
+            product_id   = find_or_create_product(text, db, name_override=product_name)
+            if not product_id:
+                continue
+
+            # release_schedule に登録（source_url も保存）
             db.table("release_schedule").insert({
                 "product_id":     product_id,
                 "scheduled_date": release_date.isoformat(),
                 "is_confirmed":   True,
+                "source_url":     tweet_url,
                 "notes":          f"公式X (@{username}) より一括取得",
             }).execute()
 
             total_new += 1
-            print(f"  ✅ 登録: {release_date} | {text[:60]}...")
+            print(f"  ✅ 登録: {release_date} | {product_name or text[:40]}...")
 
     print(f"\n🎉 完了: 合計 {total_new} 件を新規登録しました。")
 

@@ -13,6 +13,7 @@ from dotenv import load_dotenv
 from utils.text_parser import (
     is_product_announcement, find_or_create_product,
     extract_date, extract_price, extract_product_category,
+    extract_product_name_with_ai,
 )
 
 load_dotenv()
@@ -84,19 +85,29 @@ def run():
             # 新商品発表ツイートの場合は products にも自動登録
             product_id = None
             if is_product_announcement(tweet.text):
-                product_id = find_or_create_product(tweet.text, db)
+                product_name = extract_product_name_with_ai(tweet.text)
+                product_id   = find_or_create_product(tweet.text, db, name_override=product_name)
 
                 # 発売日が読み取れた場合は release_schedule にも登録
                 if product_id:
                     release_date = extract_date(tweet.text)
                     if release_date:
-                        db.table("release_schedule").insert({
-                            "product_id":     product_id,
-                            "scheduled_date": release_date.isoformat(),
-                            "is_confirmed":   True,
-                            "notes":          f"公式X (@{username}) より自動取得",
-                        }).execute()
-                        print(f"  → 発売スケジュール登録: {release_date}")
+                        # 同じツイートの重複登録を防ぐ
+                        existing = (
+                            db.table("release_schedule")
+                            .select("id")
+                            .eq("source_url", post_url)
+                            .execute()
+                        )
+                        if not existing.data:
+                            db.table("release_schedule").insert({
+                                "product_id":     product_id,
+                                "scheduled_date": release_date.isoformat(),
+                                "is_confirmed":   True,
+                                "source_url":     post_url,
+                                "notes":          f"公式X (@{username}) より自動取得",
+                            }).execute()
+                            print(f"  → 発売スケジュール登録: {release_date} / {product_name or tweet.text[:30]}")
 
             db.table("inventory_reports").insert({
                 "status":        "in_stock",
