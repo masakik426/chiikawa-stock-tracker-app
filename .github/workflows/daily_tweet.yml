@@ -42,3 +42,4 @@ jobs:
           SUPABASE_URL:               ${{ secrets.SUPABASE_URL }}
           SUPABASE_KEY:               ${{ secrets.SUPABASE_KEY }}
           SITE_URL:                   ${{ secrets.SITE_URL }}
+          X_BEARER_TOKEN:             ${{ secrets.X_BEARER_TOKEN }}

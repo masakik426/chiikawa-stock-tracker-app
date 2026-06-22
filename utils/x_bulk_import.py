@@ -10,6 +10,7 @@ GitHub Actions の手動実行（workflow_dispatch）から呼び出す。
 """
 
 import os
+import time
 from datetime import date
 
 import tweepy
@@ -63,28 +64,46 @@ def run():
             if not user.data:
                 print(f"  → ユーザーが見つかりません")
                 continue
-
-            # 最大100件のツイートを取得（リツイート・リプライは除外）
-            response = client.get_users_tweets(
-                id=user.data.id,
-                max_results=100,
-                tweet_fields=["created_at"],
-                exclude=["retweets", "replies"],
-            )
-        except tweepy.TooManyRequests:
-            print("  ⚠️ API レート制限に達しました。今回はここまでで終了します。")
-            break
         except tweepy.TweepyException as e:
             print(f"  ❌ API エラー: {e}")
             continue
 
-        if not response.data:
+        # ページネーションで最大3ページ（100件×3=300件）を取得する
+        all_tweets = []
+        next_token = None
+        for page in range(3):
+            try:
+                kwargs = dict(
+                    id=user.data.id,
+                    max_results=100,
+                    tweet_fields=["created_at"],
+                    exclude=["retweets", "replies"],
+                )
+                if next_token:
+                    kwargs["pagination_token"] = next_token
+                response = client.get_users_tweets(**kwargs)
+            except tweepy.TooManyRequests:
+                print("  ⚠️ API レート制限に達しました。今回はここまでで終了します。")
+                break
+            except tweepy.TweepyException as e:
+                print(f"  ❌ API エラー（ページ {page + 1}）: {e}")
+                break
+
+            if not response.data:
+                break
+            all_tweets.extend(response.data)
+            next_token = response.meta.get("next_token") if response.meta else None
+            if not next_token:
+                break
+            time.sleep(2)  # ページ間のレート制限対応
+
+        if not all_tweets:
             print("  → ツイートなし")
             continue
 
-        print(f"  → {len(response.data)} 件取得")
+        print(f"  → {len(all_tweets)} 件取得")
 
-        for tweet in response.data:
+        for tweet in all_tweets:
             text       = tweet.text
             tweet_url  = f"https://x.com/{username}/status/{tweet.id}"
 

@@ -1,21 +1,23 @@
 """
-Supabase の release_schedule から今後7日間の発売情報を取得し、
-専用Xアカウントに毎日1回つぶやくスクリプト。
+毎日2種類のツイートを @chiikawa_track に投稿するスクリプト。
 
-GitHub Actions から daily_tweet.yml に呼び出される（毎日 JST 12:00）。
+① 週間サマリーツイート
+   今後7日間の発売予定をまとめて投稿する。
 
-【重要】X への投稿には OAuth 1.0a 認証が必要。
-Bearer Token（読み取り専用）とは別に、以下の4つの環境変数が必要：
-  POST_X_API_KEY             : API Key（Consumer Key）
-  POST_X_API_SECRET          : API Key Secret（Consumer Secret）
-  POST_X_ACCESS_TOKEN        : Access Token
-  POST_X_ACCESS_TOKEN_SECRET : Access Token Secret
-これらは GitHub Secrets に設定しておくこと。
+② 本日発売ツイート（引用ツイート＋商品画像）
+   本日発売の商品を1件ずつ公式ツイートを引用しながら投稿する。
+   元ツイートに画像があればダウンロードして一緒に添付する。
+
+GitHub Actions の daily_tweet.yml から毎日 JST 12:00 に呼び出される。
 """
 
 import os
+import re
+import time
+import tempfile
 from datetime import date, timedelta
 
+import requests
 import tweepy
 from supabase import create_client
 from dotenv import load_dotenv
@@ -25,19 +27,18 @@ load_dotenv()
 # 曜日を日本語に変換するリスト（0=月曜日 〜 6=日曜日）
 WEEKDAYS_JP = ["月", "火", "水", "木", "金", "土", "日"]
 
-# ツイートに貼るサイトURL
-# GitHub Secrets に SITE_URL を設定するか、直接書き換えてください
-SITE_URL = os.environ.get("SITE_URL", "https://chiikawa-goods-info.streamlit.app")
-
 # ハッシュタグ（末尾に付ける）
 HASHTAGS = "#ちいかわ #ちいかわグッズ"
 
+
+# ──────────────────────────────────────────────
+# データ取得
+# ──────────────────────────────────────────────
 
 def get_next_week_releases(db) -> list:
     """今日から7日間の発売スケジュールを取得する。"""
     today = date.today()
     end   = today + timedelta(days=7)
-
     res = (
         db.table("release_schedule")
         .select("*, products(name, category), stores(name)")
@@ -49,30 +50,43 @@ def get_next_week_releases(db) -> list:
     return res.data
 
 
-def format_tweet(releases: list) -> str:
-    """
-    発売情報リストをシンプルなツイートテキストに整形する。
+def get_today_releases(db) -> list:
+    """本日発売の商品を取得する。"""
+    today = date.today()
+    res = (
+        db.table("release_schedule")
+        .select("*, products(name, category), stores(name)")
+        .eq("scheduled_date", today.isoformat())
+        .execute()
+    )
+    return res.data
 
-    フォーマット例:
+
+# ──────────────────────────────────────────────
+# ツイート文章の生成
+# ──────────────────────────────────────────────
+
+def format_weekly_tweet(releases: list) -> str:
+    """
+    今後7日間の発売情報を週間サマリーとしてフォーマットする。
+
+    例:
       🐰 今週のちいかわグッズ発売情報
 
       📅 6/23（月）
-      ・ちいかわぬいぐるみ新作 @ ローソン
+      ・ちいかわぬいぐるみ @ ローソン
 
       📅 6/25（水）
       ・ちいかわガチャ
 
-      詳細→ https://...
       #ちいかわ #ちいかわグッズ
     """
     if not releases:
         return ""
 
-    # 日付ごとにグループ化する
     by_date: dict[str, list] = {}
     for r in releases:
-        d_str = r["scheduled_date"]
-        by_date.setdefault(d_str, []).append(r)
+        by_date.setdefault(r["scheduled_date"], []).append(r)
 
     lines = ["🐰 今週のちいかわグッズ発売情報", ""]
 
@@ -86,38 +100,106 @@ def format_tweet(releases: list) -> str:
             store      = r.get("stores") or {}
             name       = product.get("name", "（商品情報取得中）")
             store_name = store.get("name", "") if store else ""
-            source_url = r.get("source_url", "")
 
             if store_name:
                 lines.append(f"・{name} @ {store_name}")
             else:
                 lines.append(f"・{name}")
 
-            # 元の公式ツイートURLがあれば添付する
-            if source_url:
-                lines.append(f" ↳ {source_url}")
-
-        lines.append("")  # 日付ブロックの間に空行を入れる
+        lines.append("")
 
     lines.append(HASHTAGS)
-
     tweet_text = "\n".join(lines)
 
-    # X の文字数上限は280文字（日本語は1文字2文字カウントされる場合もある）
-    # 270文字を超えたら末尾を省略してリンクとタグを残す
+    # 270文字を超えたら末尾を省略してハッシュタグを残す
     if len(tweet_text) > 270:
-        # ハッシュタグとリンクを確保した上で本文を切り詰める
-        footer = f"\n詳細→ {SITE_URL}\n{HASHTAGS}"
-        max_body = 270 - len(footer) - 3  # "..." の分
-        tweet_text = tweet_text[:max_body] + "..." + footer
+        max_body = 270 - len(HASHTAGS) - 5
+        tweet_text = tweet_text[:max_body] + "...\n" + HASHTAGS
 
     return tweet_text
 
 
-def post_tweet(text: str) -> str | None:
+def format_today_tweet(release: dict) -> str:
     """
-    X API v2 を使ってツイートを投稿する。
-    成功した場合はツイートIDを返し、失敗した場合は None を返す。
+    本日発売の商品を1件フォーマットする。
+    このツイートは公式ツイートの引用ツイートとして投稿される。
+
+    例:
+      🎉 本日発売！
+
+      📦 ちいかわぬいぐるみ（Mサイズ）
+      🏪 ちいかわらんど
+
+      #ちいかわ #ちいかわグッズ
+    """
+    product    = release.get("products") or {}
+    store      = release.get("stores") or {}
+    name       = product.get("name", "（商品名不明）")
+    store_name = store.get("name", "") if store else ""
+
+    lines = ["🎉 本日発売！", ""]
+    lines.append(f"📦 {name}")
+    if store_name:
+        lines.append(f"🏪 {store_name}")
+    lines.append("")
+    lines.append(HASHTAGS)
+    return "\n".join(lines)
+
+
+# ──────────────────────────────────────────────
+# 画像取得・アップロード
+# ──────────────────────────────────────────────
+
+def extract_tweet_id(source_url: str) -> str | None:
+    """source_url（例: https://x.com/xxx/status/123）からツイートIDを取り出す。"""
+    match = re.search(r"/status/(\d+)", source_url or "")
+    return match.group(1) if match else None
+
+
+def fetch_tweet_image_url(tweet_id: str, bearer_token: str) -> str | None:
+    """X API v2 を使って元ツイートの最初の画像 URL を取得する。"""
+    try:
+        client = tweepy.Client(bearer_token=bearer_token)
+        response = client.get_tweet(
+            tweet_id,
+            expansions=["attachments.media_keys"],
+            media_fields=["url", "type"],
+        )
+        if response.includes and "media" in response.includes:
+            for media in response.includes["media"]:
+                if media.type == "photo" and media.url:
+                    return media.url
+    except Exception as e:
+        print(f"  画像URL取得エラー: {e}")
+    return None
+
+
+def upload_image_to_x(image_url: str, api_v1) -> str | None:
+    """画像 URL からダウンロードし、X にアップロードして media_id を返す。"""
+    try:
+        r = requests.get(image_url, timeout=10)
+        r.raise_for_status()
+        with tempfile.NamedTemporaryFile(suffix=".jpg", delete=False) as f:
+            f.write(r.content)
+            tmp_path = f.name
+        media = api_v1.media_upload(tmp_path)
+        os.unlink(tmp_path)
+        return str(media.media_id)
+    except Exception as e:
+        print(f"  画像アップロードエラー: {e}")
+    return None
+
+
+# ──────────────────────────────────────────────
+# X クライアント構築
+# ──────────────────────────────────────────────
+
+def build_clients():
+    """
+    X API クライアントを2種類構築して返す。
+    - client_v2 : v2 API（ツイート投稿）
+    - api_v1    : v1.1 API（メディアアップロード専用）
+    どちらも OAuth 1.0a の4つのシークレットを使う。
     """
     api_key       = os.environ.get("POST_X_API_KEY")
     api_secret    = os.environ.get("POST_X_API_SECRET")
@@ -131,51 +213,103 @@ def post_tweet(text: str) -> str | None:
             "POST_X_ACCESS_TOKEN / POST_X_ACCESS_TOKEN_SECRET\n"
             "   を GitHub Secrets に設定してください。"
         )
-        return None
+        return None, None
 
-    # OAuth 1.0a で認証（投稿にはこの形式が必要）
-    client = tweepy.Client(
+    client_v2 = tweepy.Client(
         consumer_key=api_key,
         consumer_secret=api_secret,
         access_token=access_token,
         access_token_secret=access_secret,
     )
+    auth   = tweepy.OAuth1UserHandler(api_key, api_secret, access_token, access_secret)
+    api_v1 = tweepy.API(auth)
+    return client_v2, api_v1
 
+
+def post_tweet(client, text: str, quote_tweet_id: str | None = None, media_ids: list | None = None) -> str | None:
+    """
+    ツイートを投稿する。
+    quote_tweet_id を指定すると引用ツイートになる。
+    media_ids を指定すると画像が添付される。
+    """
     try:
-        response = client.create_tweet(text=text)
-        tweet_id = response.data["id"]
-        return tweet_id
+        kwargs = {"text": text}
+        if quote_tweet_id:
+            kwargs["quote_tweet_id"] = quote_tweet_id
+        if media_ids:
+            kwargs["media_ids"] = media_ids
+        response = client.create_tweet(**kwargs)
+        return response.data["id"]
     except tweepy.TweepyException as e:
         print(f"❌ X API エラー: {e}")
         return None
 
 
+# ──────────────────────────────────────────────
+# メイン処理
+# ──────────────────────────────────────────────
+
 def run():
-    """発売情報を取得してXに投稿する。"""
+    """週間サマリーと本日発売ツイートを投稿する。"""
     supabase_url = os.environ.get("SUPABASE_URL")
     supabase_key = os.environ.get("SUPABASE_KEY")
+    bearer_token = os.environ.get("X_BEARER_TOKEN")
 
     if not all([supabase_url, supabase_key]):
         print("環境変数 SUPABASE_URL / SUPABASE_KEY が設定されていません。")
         return
 
-    db       = create_client(supabase_url, supabase_key)
-    releases = get_next_week_releases(db)
-
-    if not releases:
-        print("今後7日間に発売予定の商品はありません。ツイートをスキップします。")
+    db                = create_client(supabase_url, supabase_key)
+    client_v2, api_v1 = build_clients()
+    if not client_v2:
         return
 
-    tweet_text = format_tweet(releases)
-    print("━━━ 投稿予定のツイート ━━━")
-    print(tweet_text)
-    print(f"━━━ 文字数: {len(tweet_text)} ━━━\n")
-
-    tweet_id = post_tweet(tweet_text)
-    if tweet_id:
-        print(f"✅ 投稿完了！ https://x.com/i/web/status/{tweet_id}")
+    # ① 週間サマリーを投稿する
+    print("=== ① 週間サマリー ===")
+    weekly_releases = get_next_week_releases(db)
+    if weekly_releases:
+        tweet_text = format_weekly_tweet(weekly_releases)
+        print(tweet_text)
+        print(f"文字数: {len(tweet_text)}\n")
+        tweet_id = post_tweet(client_v2, tweet_text)
+        if tweet_id:
+            print(f"✅ 投稿完了！ https://x.com/i/web/status/{tweet_id}\n")
     else:
-        print("投稿に失敗しました。")
+        print("今後7日間に発売予定の商品はありません。スキップします。\n")
+
+    # ② 本日発売の商品を引用ツイートで投稿する（最大3件）
+    print("=== ② 本日発売ツイート ===")
+    today_releases = get_today_releases(db)
+    if not today_releases:
+        print("本日発売の商品はありません。スキップします。")
+        return
+
+    print(f"本日発売: {len(today_releases)} 件\n")
+    for release in today_releases[:3]:
+        tweet_text   = format_today_tweet(release)
+        source_url   = release.get("source_url", "")
+        tweet_id_str = extract_tweet_id(source_url)
+
+        # 元ツイートの画像を取得してアップロードする（失敗しても投稿は続ける）
+        media_ids = None
+        if tweet_id_str and bearer_token and api_v1:
+            image_url = fetch_tweet_image_url(tweet_id_str, bearer_token)
+            if image_url:
+                media_id = upload_image_to_x(image_url, api_v1)
+                if media_id:
+                    media_ids = [media_id]
+
+        name = (release.get("products") or {}).get("name", "（商品名不明）")
+        print(f"--- {name} ---")
+        print(tweet_text)
+        print(f"引用元: {source_url}")
+        print(f"画像: {'あり ✅' if media_ids else 'なし（引用ツイートで代替）'}\n")
+
+        tweet_id = post_tweet(client_v2, tweet_text, quote_tweet_id=tweet_id_str, media_ids=media_ids)
+        if tweet_id:
+            print(f"✅ 投稿完了！ https://x.com/i/web/status/{tweet_id}\n")
+
+        time.sleep(3)  # 連続投稿の間に少し間隔を空ける
 
 
 if __name__ == "__main__":

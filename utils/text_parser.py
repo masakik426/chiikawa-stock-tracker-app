@@ -107,8 +107,19 @@ def extract_price(text: str) -> int | None:
 
 
 def extract_date(text: str) -> date | None:
-    """テキストから発売日を抽出する（X月X日 / YYYY年X月X日 パターン）。"""
+    """テキストから発売日を抽出する。複数の表記形式に対応。"""
     current_year = datetime.now().year
+    today = date.today()
+
+    def _adjust_year(m: int, d: int) -> date | None:
+        # 年なし日付で90日以上過去なら翌年として扱う
+        try:
+            candidate = date(current_year, m, d)
+            if (today - candidate).days > 90:
+                candidate = date(current_year + 1, m, d)
+            return candidate
+        except ValueError:
+            return None
 
     # YYYY年M月D日
     match = re.search(r"(\d{4})年(\d{1,2})月(\d{1,2})日", text)
@@ -118,13 +129,29 @@ def extract_date(text: str) -> date | None:
         except ValueError:
             pass
 
-    # M月D日（年なし → 今年として扱う）
-    match = re.search(r"(\d{1,2})月(\d{1,2})日", text)
+    # YYYY/M/D または YYYY-M-D
+    match = re.search(r"(\d{4})[/\-](\d{1,2})[/\-](\d{1,2})", text)
     if match:
         try:
-            return date(current_year, int(match.group(1)), int(match.group(2)))
+            return date(int(match.group(1)), int(match.group(2)), int(match.group(3)))
         except ValueError:
             pass
+
+    # M月D日（年なし）
+    match = re.search(r"(\d{1,2})月(\d{1,2})日", text)
+    if match:
+        result = _adjust_year(int(match.group(1)), int(match.group(2)))
+        if result:
+            return result
+
+    # M/D（年なし、前後に別の数字が続かない場合のみ）
+    match = re.search(r"(?<!\d)(\d{1,2})/(\d{1,2})(?!\d)", text)
+    if match:
+        m, d = int(match.group(1)), int(match.group(2))
+        if 1 <= m <= 12 and 1 <= d <= 31:
+            result = _adjust_year(m, d)
+            if result:
+                return result
 
     return None
 
